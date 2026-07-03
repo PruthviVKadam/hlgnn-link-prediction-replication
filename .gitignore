@@ -1,0 +1,19 @@
+# envs
+hlgnn_env/
+.venv/
+__pycache__/
+*.pyc
+
+# cloned upstream
+repo/
+
+# data & artifacts
+data/
+*.pth
+*.ckpt
+
+results/*.tmp
+
+# os
+.DS_Store
+Thumbs.db
