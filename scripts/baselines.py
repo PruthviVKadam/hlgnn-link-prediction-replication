@@ -57,7 +57,8 @@ def katz_matrix(a) -> ssp.csr_matrix:
 
 
 def katz_scores(k, edges):
-    src, dst = edges[:, 0].numpy(), edges[:, 1].numpy()
+    # .copy(): scipy fancy indexing rejects torch's non-writeable numpy views
+    src, dst = edges[:, 0].numpy().copy(), edges[:, 1].numpy().copy()
     return np.asarray(k[src, dst]).flatten()
 
 
