@@ -1,13 +1,16 @@
-# HL-GNN replication.
-# IMPORTANT: install torch FIRST (matching your CUDA), THEN the PyG stack pinned to
-# that exact torch/CUDA build, e.g. for torch 2.1.0 + cu121:
-#   pip install torch --index-url https://download.pytorch.org/whl/cu121
-#   pip install pyg-lib torch-scatter torch-sparse \
-#       -f https://data.pyg.org/whl/torch-2.1.0+cu121.html
+# HL-GNN replication — modern pure-Python PyG stack.
+# NOTE: torch-scatter / torch-sparse compiled extensions are NOT needed:
+# the repo is patched (see patches/) to use PyG's native sparse path
+# (ToSparseTensor -> torch.sparse_csr, gcn_norm, torch_geometric.utils.spmm).
+# Install torch first with the CUDA build for your driver, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
 torch>=2.1
-torch-geometric>=2.4
+torch-geometric>=2.5
+ogb>=1.3.6
 numpy>=1.24
+scipy>=1.10
 scikit-learn>=1.3
 networkx>=3.1
 matplotlib>=3.7
 pandas>=2.0
+tqdm>=4.66

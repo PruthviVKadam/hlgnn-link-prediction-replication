@@ -1,0 +1,223 @@
+diff --git a/Planetoid/model.py b/Planetoid/model.py
+index 57da635..e9d82f9 100644
+--- a/Planetoid/model.py
++++ b/Planetoid/model.py
+@@ -5,7 +5,6 @@ import torch.nn as nn
+ import torch.nn.functional as F
+ from torch.utils.data import DataLoader
+ from torch.nn import Parameter, Linear
+-from torch_sparse import SparseTensor
+ import torch_geometric.transforms as T
+ from torch_geometric.nn import MessagePassing, APPNP
+ from torch_geometric.nn import GCNConv, SAGEConv, GATConv
+@@ -15,8 +14,9 @@ from logger import Logger
+ import os.path as osp
+ from torch_geometric.datasets import Planetoid
+ from torch_geometric.utils import add_remaining_self_loops
+-from torch_scatter import scatter_add
+-from torch_sparse import matmul
++# torch_scatter/torch_sparse replaced with PyG's native spmm so the model
++# runs without compiled extension wheels (unavailable for this platform).
++from torch_geometric.utils import spmm
+ from torch_geometric.nn.conv.gcn_conv import gcn_norm
+ 
+ 
+@@ -74,6 +74,9 @@ class HLGNN(MessagePassing):
+         x = F.dropout(x, p=self.dropout, training=self.training)
+         x = self.lin1(x)
+         adj_t = gcn_norm(adj_t, edge_weight, adj_t.size(0), dtype=torch.float)
++        if isinstance(adj_t, tuple):
++            # PyG >= 2.8 returns (adj, edge_weight) for torch.sparse inputs
++            adj_t = adj_t[0]
+         # edge_index, row_n = row_norm(raw_edge_index, edge_weight, num_nodes, dtype=torch.float)
+         # edge_index, column_n = column_norm(raw_edge_index, edge_weight, num_nodes, dtype=torch.float)
+         
+@@ -88,7 +91,7 @@ class HLGNN(MessagePassing):
+     #     return norm.view(-1, 1) * x_j
+     
+     def message_and_aggregate(self, adj_t, x):
+-        return matmul(adj_t, x, reduce="add")
++        return spmm(adj_t, x, reduce="add")
+ 
+ 
+ class GCN(torch.nn.Module):
+diff --git a/Planetoid/planetoid.py b/Planetoid/planetoid.py
+index 0771f62..6356a86 100644
+--- a/Planetoid/planetoid.py
++++ b/Planetoid/planetoid.py
+@@ -4,8 +4,8 @@ import torch
+ import torch.nn.functional as F
+ from torch.utils.data import DataLoader
+ from torch.nn import Parameter, Linear
+-from torch_sparse import SparseTensor
+ import torch_geometric.transforms as T
++from sklearn.metrics import roc_auc_score
+ from torch_geometric.nn import MessagePassing, APPNP
+ from torch_geometric.nn import GCNConv, SAGEConv
+ from torch_geometric.nn.conv.gcn_conv import gcn_norm
+@@ -94,6 +94,21 @@ def test(model, predictor, data, split_edge, evaluator, batch_size):
+     neg_test_pred = torch.cat(neg_test_preds, dim=0)
+ 
+     results = {}
++
++    # AUC over pos/neg pairs — primary metric per the replication plan
++    # (train AUC mirrors the repo's Hits@K convention of scoring train
++    # positives against the validation negatives).
++    def _auc(pos, neg):
++        y = np.concatenate([np.ones(pos.size(0)), np.zeros(neg.size(0))])
++        s = torch.cat([pos, neg]).numpy()
++        return roc_auc_score(y, s)
++
++    results['AUC'] = (
++        _auc(pos_train_pred, neg_valid_pred),
++        _auc(pos_valid_pred, neg_valid_pred),
++        _auc(pos_test_pred, neg_test_pred),
++    )
++
+     for K in [10, 50, 100]:
+         evaluator.K = K
+         train_hits = evaluator.eval({
+@@ -130,6 +145,9 @@ def main():
+     parser.add_argument('--alpha', type=float, default=0.2)
+     parser.add_argument('--init', type=str, choices=['SGC', 'RWR', 'KI', 'Random', 'WS', 'Null'], default='KI')
+     parser.add_argument('--dataset', type=str, default='cora')
++    parser.add_argument('--save_pred', type=str, default='',
++                        help='optional path to save final-model test scores + '
++                             'learned propagation weights (for visualization)')
+     
+     args = parser.parse_args()
+     print(args)
+@@ -137,13 +155,17 @@ def main():
+     device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
+     device = torch.device(device)
+     
+-    path = osp.join('~/dataset', args.dataset)
++    # keep data inside the project (shared with scripts/check_split.py)
++    # instead of the original '~/dataset'
++    path = osp.join('..', '..', 'data', args.dataset)
+     dataset = Planetoid(path, args.dataset)
+     
+     split_edge = do_edge_split(dataset)
+     data = dataset[0]
+     data.edge_index = split_edge['train']['edge'].t()
+     data = T.ToSparseTensor(remove_edge_index=False)(data)
++    if 'edge_weight' not in data:
++        data.edge_weight = None  # Planetoid graphs are unweighted
+     data = data.to(device)
+    
+     model = HLGNN(data, args).to(device)
+@@ -157,6 +179,7 @@ def main():
+     evaluator = Evaluator(name='ogbl-collab')
+     
+     loggers = {
++        'AUC': Logger(args.runs, args),
+         'Hits@10': Logger(args.runs, args),
+         'Hits@50': Logger(args.runs, args),
+         'Hits@100': Logger(args.runs, args),
+@@ -201,6 +224,27 @@ def main():
+         print(key)
+         loggers[key].print_statistics()
+ 
++    if args.save_pred:
++        # Save final-model test scores + learned heuristic weights gamma_k
++        # (from the last run's final epoch) for downstream visualization.
++        model.eval()
++        predictor.eval()
++        with torch.no_grad():
++            h = model(data.x, data.adj_t, data.edge_weight)
++            pos = split_edge['test']['edge'].to(h.device).t()
++            neg = split_edge['test']['edge_neg'].to(h.device).t()
++            pos_scores = predictor(h[pos[0]], h[pos[1]]).squeeze().cpu()
++            neg_scores = predictor(h[neg[0]], h[neg[1]]).squeeze().cpu()
++        torch.save({
++            'dataset': args.dataset,
++            'test_pos': pos.cpu().t(),
++            'test_neg': neg.cpu().t(),
++            'pos_scores': pos_scores,
++            'neg_scores': neg_scores,
++            'gamma': model.temp.detach().cpu(),
++        }, args.save_pred)
++        print(f'saved predictions to {args.save_pred}')
++
+ 
+ if __name__ == "__main__":
+     main()
+diff --git a/Planetoid/utils.py b/Planetoid/utils.py
+index bb490b2..dbcd9d0 100644
+--- a/Planetoid/utils.py
++++ b/Planetoid/utils.py
+@@ -6,17 +6,69 @@ import numpy as np
+ import scipy.sparse as ssp
+ from scipy.sparse.csgraph import shortest_path
+ import torch
+-from torch_sparse import spspmm
++# torch_sparse imports removed: spspmm/SparseTensor were never used in this
++# module, and dropping them lets the code run on modern pure-Python PyG
++# (no compiled extension wheels needed on Windows/Python 3.14).
+ import torch_geometric
+-from torch_geometric.data import DataLoader
++from torch.utils.data import DataLoader  # moved out of torch_geometric.data in PyG >= 2.4
+ from torch_geometric.data import Data
+-from torch_geometric.utils import (negative_sampling, add_self_loops, train_test_split_edges)
++from torch_geometric.utils import negative_sampling, add_self_loops
+ import pdb
+-from torch_sparse import SparseTensor
+ from torch import Tensor
+-import torch_sparse
+ from typing import List, Tuple
+ 
++try:  # deprecated/removed from torch_geometric.utils in recent PyG
++    from torch_geometric.utils import train_test_split_edges
++except ImportError:
++    # Vendored copy of the classic PyG implementation so the original
++    # split protocol (and its RNG behavior) is preserved exactly.
++    from torch_geometric.utils import to_undirected
++
++    def train_test_split_edges(data, val_ratio=0.05, test_ratio=0.1):
++        num_nodes = data.num_nodes
++        row, col = data.edge_index
++        data.edge_index = None
++
++        # Return upper triangular portion.
++        mask = row < col
++        row, col = row[mask], col[mask]
++
++        n_v = int(math.floor(val_ratio * row.size(0)))
++        n_t = int(math.floor(test_ratio * row.size(0)))
++
++        # Positive edges.
++        perm = torch.randperm(row.size(0))
++        row, col = row[perm], col[perm]
++
++        r, c = row[:n_v], col[:n_v]
++        data.val_pos_edge_index = torch.stack([r, c], dim=0)
++        r, c = row[n_v:n_v + n_t], col[n_v:n_v + n_t]
++        data.test_pos_edge_index = torch.stack([r, c], dim=0)
++
++        r, c = row[n_v + n_t:], col[n_v + n_t:]
++        data.train_pos_edge_index = torch.stack([r, c], dim=0)
++        data.train_pos_edge_index = to_undirected(data.train_pos_edge_index)
++
++        # Negative edges.
++        neg_adj_mask = torch.ones(num_nodes, num_nodes, dtype=torch.uint8)
++        neg_adj_mask = neg_adj_mask.triu(diagonal=1).to(torch.bool)
++        neg_adj_mask[row, col] = 0
++
++        neg_row, neg_col = neg_adj_mask.nonzero(as_tuple=False).t()
++        perm = torch.randperm(neg_row.size(0))[:n_v + n_t]
++        neg_row, neg_col = neg_row[perm], neg_col[perm]
++
++        neg_adj_mask[neg_row, neg_col] = 0
++        data.train_neg_adj_mask = neg_adj_mask
++
++        row, col = neg_row[:n_v], neg_col[:n_v]
++        data.val_neg_edge_index = torch.stack([row, col], dim=0)
++
++        row, col = neg_row[n_v:n_v + n_t], neg_col[n_v:n_v + n_t]
++        data.test_neg_edge_index = torch.stack([row, col], dim=0)
++
++        return data
++
+ 
+ def do_edge_split(dataset, fast_split=False, val_ratio=0.05, test_ratio=0.1):
+     data = dataset[0]
