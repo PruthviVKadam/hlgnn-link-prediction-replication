@@ -21,13 +21,31 @@ python planetoid.py --dataset cora --hidden_channels 512 --epochs 200 \
 
 Full method, gates, and pitfalls: [PLAN.md](./PLAN.md).
 
-## Results (fill with real numbers, mean ± std over 3 seeds)
+## Results — replication completed 2026-07-03
 
-| Dataset  | AUC | AP | Notes |
-|----------|-----|----|-------|
-| Cora     | _TBD (bar > 0.90)_ | | |
-| Citeseer | _TBD_ | | |
-| Pubmed   | _TBD_ | | |
+Final test metrics, mean ± std over 3 runs (identical `do_edge_split` seed-234
+split for model and baselines):
+
+| Dataset  | **HL-GNN AUC**   | Hits@100     | Best heuristic (Katz) | Margin |
+|----------|------------------|--------------|-----------------------|--------|
+| Cora     | **96.15 ± 0.93** | 94.69 ± 2.14 | 82.62                 | +13.5  |
+| Citeseer | **96.50 ± 0.73** | 96.04 ± 1.52 | 77.13                 | +19.4  |
+| Pubmed   | **98.44 ± 0.06** | 88.09 ± 0.57 | 79.23                 | +19.2  |
+
+✅ GATE 3 (Cora AUC > 0.90) passed with 6-point margin. Hits@100 consistent
+with the paper's reported Planetoid numbers. Total training: ~15 min for all
+9 runs on the RTX 4070 (8 GB), official README hyperparameters.
+
+Figures in [`results/`](./results/): `auc_comparison.png` (heuristics vs
+HL-GNN), `gamma_weights.png` (learned γₖ — note the negative long-range
+weights on Cora/Citeseer), `cora_predictions.png` (top predicted held-out
+links). Full numbers: `results/metrics.csv`, `results/baselines.csv`.
+Deviations & patches: [NOTES.md](./NOTES.md).
+
+> **Environment note:** the compiled PyG extensions the plan called for have
+> no Python 3.14/Windows wheels — the upstream code is instead patched to
+> PyG's native sparse path (see `patches/`), and GATE 0 verifies that path
+> functionally.
 
 ## Files
 

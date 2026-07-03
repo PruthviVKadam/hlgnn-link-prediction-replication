@@ -116,10 +116,11 @@ done
 Gradio app: user supplies a small edge list, model returns missing-link probabilities.
 Dockerfile from a PyTorch base + PyG wheels.
 
-## Definition of done
+## Definition of done — ✅ COMPLETED 2026-07-03
 
-- [ ] Gates 0–3 passed
-- [ ] Cora/Citeseer/Pubmed AUC (mean ± std, 3 seeds) in `results/metrics.csv`
-- [ ] Cora AUC > 0.90 recorded
-- [ ] Baseline-vs-HL-GNN chart generated
-- [ ] `README.md` results table filled with real numbers
+- [x] Gates 0–3 passed (evidence in [NOTES.md](./NOTES.md); env strategy
+      changed to native-sparse PyG — no compiled extensions, see NOTES)
+- [x] Cora/Citeseer/Pubmed AUC (mean ± std, 3 runs) in `results/metrics.csv`
+- [x] Cora AUC > 0.90 recorded — **96.15 ± 0.93**
+- [x] Baseline-vs-HL-GNN chart generated (`results/auc_comparison.png`)
+- [x] `README.md` results table filled with real numbers

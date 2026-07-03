@@ -1,0 +1,13 @@
+dataset,metric,final_test_mean,final_test_std,highest_valid_mean
+cora,AUC,96.15,0.93,96.24
+cora,Hits@10,75.59,2.7,86.57
+cora,Hits@50,88.68,1.23,94.55
+cora,Hits@100,94.69,2.14,97.47
+citeseer,AUC,96.5,0.73,96.67
+citeseer,Hits@10,76.19,1.89,88.69
+citeseer,Hits@50,90.84,2.79,96.04
+citeseer,Hits@100,96.04,1.52,98.24
+pubmed,AUC,98.44,0.06,98.6
+pubmed,Hits@10,54.35,3.85,78.29
+pubmed,Hits@50,78.57,0.85,90.25
+pubmed,Hits@100,88.09,0.57,93.91

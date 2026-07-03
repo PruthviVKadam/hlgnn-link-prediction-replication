@@ -1,0 +1,10 @@
+dataset,method,test_auc
+cora,CN,0.7228
+cora,AA,0.7242
+cora,Katz,0.8262
+citeseer,CN,0.677
+citeseer,AA,0.6773
+citeseer,Katz,0.7713
+pubmed,CN,0.6384
+pubmed,AA,0.6385
+pubmed,Katz,0.7923
