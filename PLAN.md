@@ -118,7 +118,7 @@ Dockerfile from a PyTorch base + PyG wheels.
 
 ## Definition of done — ✅ COMPLETED 2026-07-03
 
-- [x] Gates 0–3 passed (evidence in [NOTES.md](./NOTES.md); env strategy
+- [x] Gates 0–3 passed (evidence in [REPORT.md](./REPORT.md); env strategy
       changed to native-sparse PyG — no compiled extensions, see NOTES)
 - [x] Cora/Citeseer/Pubmed AUC (mean ± std, 3 runs) in `results/metrics.csv`
 - [x] Cora AUC > 0.90 recorded — **96.15 ± 0.93**
